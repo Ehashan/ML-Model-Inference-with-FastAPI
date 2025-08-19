@@ -2,58 +2,61 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import joblib
 import numpy as np
+import pandas as pd
 
-# Load model and metadata at startup
+# Load trained model, scaler, and metadata
 model = joblib.load("model.pkl")
+scaler = joblib.load("scaler.pkl")
 metadata = joblib.load("model_metadata.pkl")
+target_names = metadata["target_names"]
 
-app = FastAPI(
-    title="Iris Classification API",
-    description="Predict iris species from 4 flower measurements",
-    version="1.0"
-)
+app = FastAPI(title="Iris ML Model API", description="API for Iris flower prediction")
 
-# Input schema
-class IrisInput(BaseModel):
-    sepal_length: float
-    sepal_width: float
-    petal_length: float
-    petal_width: float
+# Define input schema
+class PredictionInput(BaseModel):
+    SepalLengthCm: float
+    SepalWidthCm: float
+    PetalLengthCm: float
+    PetalWidthCm: float
 
-# Output schema
-class IrisOutput(BaseModel):
+class PredictionOutput(BaseModel):
     prediction: str
     confidence: float
 
 @app.get("/")
 def health_check():
-    return {"status": "healthy", "message": "ML Model API is running 🚀"}
+    return {"status": "healthy", "message": "Iris ML Model API is running"}
 
-@app.post("/predict", response_model=IrisOutput)
-def predict(input_data: IrisInput):
+@app.post("/predict", response_model=PredictionOutput)
+def predict(input_data: PredictionInput):
     try:
-        # Convert input to array
-        features = np.array([[input_data.sepal_length,
-                              input_data.sepal_width,
-                              input_data.petal_length,
-                              input_data.petal_width]])
-        
-        # Prediction
-        prediction_idx = model.predict(features)[0]
-        prediction_proba = model.predict_proba(features).max()
+        # Convert input to numpy array
+        features = np.array([[input_data.SepalLengthCm,
+                              input_data.SepalWidthCm,
+                              input_data.PetalLengthCm,
+                              input_data.PetalWidthCm]])
 
-        return IrisOutput(
-            prediction=metadata["target_names"][prediction_idx],
-            confidence=float(prediction_proba)
-        )
+        # Scale features
+        features_scaled = scaler.transform(features)
+
+        # Make prediction
+        prediction_idx = model.predict(features_scaled)[0]
+        prediction_proba = model.predict_proba(features_scaled).max()
+
+        # Map index back to class name
+        prediction_label = target_names[prediction_idx]
+
+        return PredictionOutput(prediction=prediction_label, confidence=prediction_proba)
+
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/model-info")
 def model_info():
     return {
-        "model_type": "RandomForestClassifier",
-        "problem_type": "classification",
+        "model_type": "Logistic Regression",
+        "problem_type": "Classification",
         "features": metadata["feature_names"],
-        "target_names": list(metadata["target_names"])
+        "target": "Species",
+        "classes": target_names
     }
